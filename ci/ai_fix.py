@@ -46,8 +46,10 @@ def rounds_done(base_ref: str) -> int:
 
 
 def changed_paths() -> list[str]:
-    # -uall lists new files individually rather than their new directory.
-    return [line[3:] for line in git("status", "--porcelain", "-uall").splitlines()]
+    """Modified, deleted and new (untracked, not ignored) files, repo-relative."""
+    tracked = git("diff", "--name-only", "HEAD").splitlines()
+    new = git("ls-files", "--others", "--exclude-standard").splitlines()
+    return sorted(set(tracked + new))
 
 
 def disallowed(paths: list[str], allowed: list[str]) -> list[str]:
