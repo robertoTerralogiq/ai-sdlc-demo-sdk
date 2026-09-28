@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "antigravity-reviewer"
+version = "0.1.0"
+description = "Gemini-powered pull request reviewer for GitHub Actions"
+requires-python = ">=3.10"
+dependencies = [
+    "google-genai>=1.0.0",
+    "httpx>=0.27",
+    "pydantic>=2.6.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+# stage-3 fix engines; `interactions` needs nothing beyond google-genai.
+interactions = []
+sdk = ["google-antigravity>=0.1.20"]
+adk = ["google-adk>=2.10"]
+
+[project.scripts]
+antigravity-review = "antigravity_reviewer.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["antigravity_reviewer*", "ci*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

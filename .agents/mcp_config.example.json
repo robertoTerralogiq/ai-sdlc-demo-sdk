@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "github": {
+      "serverUrl": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer <GitHub fine-grained PAT: paste in Antigravity settings, never commit>"
+      }
+    }
+  }
+}

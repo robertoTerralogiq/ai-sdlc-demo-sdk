@@ -1,0 +1,68 @@
+[
+  {
+    "file": "services/loan-service/loan/repository.py",
+    "line": 13,
+    "severity": "blocker",
+    "category": "security",
+    "title": "SQL injection vulnerability",
+    "detail": "The SQL query is constructed using an f-string, which directly includes the `contract_no` parameter. This makes the query vulnerable to SQL injection attacks. A malicious `contract_no` could alter the query to read, modify, or delete data.",
+    "suggestion": "        row = self._conn.execute(\"SELECT principal, annual_rate, tenor_months FROM contracts WHERE contract_no = ?\", (contract_no,)).fetchone()",
+    "confidence": 0.9,
+    "fingerprint": "ff2d11f91c6abe18"
+  },
+  {
+    "file": "services/loan-service/loan/settlement.py",
+    "line": 11,
+    "severity": "blocker",
+    "category": "security",
+    "title": "Hardcoded fallback credential",
+    "detail": "A fallback API key is hardcoded in the source code. This is a security risk as it could be used in production if the `CORE_API_KEY` environment variable is not set. The application should fail fast if a required credential is not provided.",
+    "suggestion": "CORE_API_KEY = os.environ[\"CORE_API_KEY\"]",
+    "confidence": 0.9,
+    "fingerprint": "6d20d9c0b650bae5"
+  },
+  {
+    "file": "services/loan-service/loan/settlement.py",
+    "line": 23,
+    "severity": "blocker",
+    "category": "security",
+    "title": "API key logged in plaintext",
+    "detail": "The `CORE_API_KEY` is being logged in plaintext. This exposes a sensitive credential in the logs, which is a serious security risk.",
+    "suggestion": "log.info(\"sending quote for %s\", contract_no)",
+    "confidence": 0.9,
+    "fingerprint": "469af8182b39480a"
+  },
+  {
+    "file": "services/loan-service/loan/settlement.py",
+    "line": 15,
+    "severity": "major",
+    "category": "correctness",
+    "title": "Use of float for money calculations",
+    "detail": "The function `settlement_quote` returns a `float`, and `PENALTY_RATE` (line 12) is a float. This can introduce precision errors in financial calculations. Per project guidelines, money values should be handled as integers (rupiah) or Decimals.",
+    "suggestion": "def settlement_quote(repo: ContractRepository, contract_no: str, paid_months: int) -> int:",
+    "confidence": 0.9,
+    "fingerprint": "1fc0b65c9cc9244b"
+  },
+  {
+    "file": "services/loan-service/loan/settlement.py",
+    "line": 30,
+    "severity": "major",
+    "category": "performance",
+    "title": "Outbound HTTP request without a timeout",
+    "detail": "The call to `urllib.request.urlopen` does not have a timeout specified. If the remote server `core-banking.internal` is slow to respond, this call could block indefinitely, exhausting server resources.",
+    "suggestion": "urllib.request.urlopen(req, timeout=10)",
+    "confidence": 0.9,
+    "fingerprint": "7fb7640042774dd7"
+  },
+  {
+    "file": "services/loan-service/loan/settlement.py",
+    "line": 31,
+    "severity": "major",
+    "category": "error-handling",
+    "title": "Swallowed exception on core banking API call",
+    "detail": "The `try...except Exception: pass` block completely silences any errors that occur when calling the core banking API, such as network issues, timeouts, or HTTP error statuses. This makes debugging failures impossible and could lead to inconsistent state.",
+    "suggestion": "    except Exception as e:\n        log.error(\"Failed to send quote for %s: %s\", contract_no, e)",
+    "confidence": 0.9,
+    "fingerprint": "02226493d6998555"
+  }
+]
