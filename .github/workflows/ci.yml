@@ -104,7 +104,7 @@ jobs:
           persist-credentials: false   # the agent step must not find a git credential
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - run: pip install --quiet -e ".[${{ vars.SDLC_MODE }}]"
+      - run: pip install --quiet -e ".[dev,${{ vars.SDLC_MODE }}]"
       - uses: actions/download-artifact@v4
         with: {name: ai-review-findings}
       - name: Fix (agent runs here, no push credential in this step)
