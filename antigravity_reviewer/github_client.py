@@ -165,24 +165,35 @@ class GitHubClient:
             raise RuntimeError(data["errors"][0].get("message", "GraphQL error"))
         return data["data"]
 
-    def unresolved_bot_threads(self) -> List[Dict[str, Any]]:
-        """Open review threads whose first comment carries our fingerprint marker."""
+    def _bot_threads(self) -> tuple[str, List[Dict[str, Any]]]:
+        """Our review threads (first comment carries the fingerprint marker), plus who we are."""
         owner, name = self.settings.repo.split("/", 1)
         data = self._graphql(
             """query($owner: String!, $name: String!, $pr: Int!) {
+              viewer { login }
               repository(owner: $owner, name: $name) { pullRequest(number: $pr) {
                 reviewThreads(first: 100) { nodes {
-                  id isResolved path line comments(first: 1) { nodes { body } } } } } } }""",
+                  id isResolved resolvedBy { login } path line
+                  comments(first: 1) { nodes { body } } } } } } }""",
             owner=owner, name=name, pr=self._pr,
         )
         threads = []
         for node in data["repository"]["pullRequest"]["reviewThreads"]["nodes"]:
             body = (node["comments"]["nodes"] or [{}])[0].get("body") or ""
-            if not node["isResolved"] and "antigravity-reviewer:fp=" in body:
+            if "antigravity-reviewer:fp=" in body:
                 # `line` is null once the commented code changed (an outdated thread).
-                threads.append({"id": node["id"], "body": body,
-                                "new_path": node["path"], "new_line": node["line"]})
-        return threads
+                threads.append({"id": node["id"], "body": body, "new_path": node["path"],
+                                "new_line": node["line"], "resolved": node["isResolved"],
+                                "resolved_by": (node.get("resolvedBy") or {}).get("login")})
+        return data["viewer"]["login"], threads
+
+    def unresolved_bot_threads(self) -> List[Dict[str, Any]]:
+        return [t for t in self._bot_threads()[1] if not t["resolved"]]
+
+    def human_resolved_threads(self) -> List[Dict[str, Any]]:
+        """Our threads that someone other than the reviewer resolved: findings a person accepted."""
+        me, threads = self._bot_threads()
+        return [t for t in threads if t["resolved"] and t["resolved_by"] not in (None, me)]
 
     # --- writing ---------------------------------------------------------
 

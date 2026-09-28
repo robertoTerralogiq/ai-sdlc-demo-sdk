@@ -227,7 +227,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if settings.resolve_stale:
             log.info("resolved %d stale review thread(s)", publisher.resolve_stale(items, head_sha))
 
-    tripped = gate_tripped(items, settings.fail_on)
+    accepted = set() if settings.dry_run else publisher.accepted_by_humans(items)
+    if accepted:
+        log.info("%d finding(s) accepted by a person (resolved thread), not gating", len(accepted))
+        # ai-fix reads this file; an accepted finding is not work for it either.
+        write_findings_json([i for i in items if i.finding.fingerprint() not in accepted],
+                            settings.findings_json_path)
+    tripped = gate_tripped([i for i in items if i.finding.fingerprint() not in accepted], settings.fail_on)
 
     if settings.post_summary:
         summary_body = build_summary(

@@ -178,6 +178,34 @@ class Publisher:
 
         return report
 
+    def accepted_by_humans(self, items: Sequence[AnchoredFinding]) -> set:
+        """Fingerprints of current findings whose thread a person resolved.
+
+        Resolving a thread is how a developer says "seen, accepted" (a false positive, or
+        a follow-up ticket). Those findings stop counting toward the gate. Only threads
+        resolved by someone other than the reviewer count, so the reviewer's own
+        clean-up of stale threads can never wave a finding through.
+        """
+        try:
+            threads = self.client.human_resolved_threads()
+        except Exception as exc:  # noqa: BLE001 - without the lookup every finding still counts
+            log.warning("cannot list resolved threads (%s); no finding is treated as accepted", exc)
+            return set()
+        accepted = set()
+        for item in items:
+            fp = item.finding.fingerprint()
+            sig = signature(item.finding.file, item.new_line, item.finding.title)
+            for thread in threads:
+                fps = FINGERPRINT_RE.findall(thread["body"])
+                title = _title_from_body(thread["body"])
+                same = bool(fps) and fps[0] == fp
+                near = (title is not None and thread.get("new_line") is not None and is_near_duplicate(
+                    signature(thread.get("new_path"), thread["new_line"], title), sig))
+                if same or near:
+                    accepted.add(fp)
+                    break
+        return accepted
+
     def resolve_stale(self, items: Sequence[AnchoredFinding], head_sha: str) -> int:
         """Resolve our own open threads that this review no longer reports.
 
