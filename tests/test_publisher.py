@@ -348,3 +348,21 @@ def test_resolve_stale_keeps_reported_threads_and_resolves_the_rest():
     assert Publisher(client, {}).resolve_stale([still], "abcdef123") == 1
     assert [t for t, _ in client.resolved] == ["T2"]
     assert "abcdef1" in client.resolved[0][1]
+
+
+def test_findings_on_threads_a_person_resolved_are_accepted():
+    from antigravity_reviewer.models import AnchoredFinding
+    from antigravity_reviewer.publisher import Publisher, format_finding_body
+
+    def anchored(f):
+        return AnchoredFinding(finding=f, new_line=f.line, new_path=f.file, old_path=f.file)
+
+    accepted = anchored(finding(title="Hardcoded credential in test configuration", line=3))
+    open_ = anchored(finding(title="SQL injection in find", line=12))
+
+    class Threads:
+        def human_resolved_threads(self):
+            return [{"body": format_finding_body(accepted, include_suggestion=False),
+                     "new_path": accepted.new_path, "new_line": 3}]
+
+    assert Publisher(Threads(), {}).accepted_by_humans([accepted, open_]) == {accepted.finding.fingerprint()}

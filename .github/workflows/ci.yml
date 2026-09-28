@@ -14,8 +14,9 @@
 #   sdk           stage-3 = Antigravity SDK (google-antigravity), agent loop on the runner
 #   adk           stage-3 = Gemini + ADK agent with hand-written tools
 #
-# Secrets: GEMINI_API_KEY (model), ASSISTANT_TOKEN (Developer assistant's token, repo scope,
-# used only by the publish step: pushes by GITHUB_TOKEN would not start the next run).
+# Secrets: GEMINI_API_KEY (model), ASSISTANT_TOKEN (Developer assistant's token, repo scope).
+# The review posts and resolves threads with it; ai-fix pushes with it, since a push made with
+# GITHUB_TOKEN would not start the next run. The agent step never receives it.
 # Variables: SDLC_MODE, ASSISTANT_EMAIL (<id>+<login>@users.noreply.github.com).
 
 name: ai-sdlc
@@ -71,6 +72,9 @@ jobs:
         run: antigravity-review
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Reviews post as Developer assistant: GITHUB_TOKEN may comment but GitHub refuses
+          # it resolveReviewThread, so the re-review could not close its own stale threads.
+          REVIEW_TOKEN: ${{ secrets.ASSISTANT_TOKEN }}
           REVIEW_PR_NUMBER: ${{ github.event.pull_request.number }}
           GOOGLE_GENAI_USE_VERTEXAI: ${{ vars.GCP_WIF_PROVIDER != '' }}
           GOOGLE_CLOUD_PROJECT: ${{ vars.GOOGLE_CLOUD_PROJECT }}

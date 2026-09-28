@@ -138,6 +138,11 @@ def cmd_publish(args: argparse.Namespace) -> int:
         gh.comment(f"🤖 **ai-fix ({engine})**: {n} fix rounds done and {result['todo']} finding(s) "
                    "still at or above the fix threshold. Handing over to a human.")
         return 0
+    # The agent's reasoning belongs on the finding's own thread, where the developer decides.
+    for s in result.get("skipped", []):
+        gh.reply_on_finding(s["fingerprint"], f"🤖 ai-fix ({engine}) left this unchanged: {s['reason']}\n\n"
+                            "Agree? Resolve this conversation: the next review stops counting it.")
+
     if status != "fixed":
         gh.comment(f"🤖 **ai-fix ({engine}) round {n}: not pushed**, status `{status}`.\n\n"
                    f"```\n{json.dumps({k: result.get(k) for k in ('changed', 'disallowed', 'tests', 'notes')}, indent=2)}\n```")
@@ -153,8 +158,6 @@ def cmd_publish(args: argparse.Namespace) -> int:
     git("push", remote, f"HEAD:refs/heads/{e['HEAD_REF']}")
     sha = git("rev-parse", "--short", "HEAD")
 
-    for s in result.get("skipped", []):
-        gh.reply_on_finding(s["fingerprint"], f"🤖 ai-fix ({engine}) left this unchanged: {s['reason']}")
     fixed = result.get("fixed", [])
     gh.comment(f"🤖 **ai-fix ({engine}) round {n}** pushed `{sha}`: fixed {len(fixed)}, "
                f"skipped {len(result.get('skipped', []))}.\n\nChanged: "
