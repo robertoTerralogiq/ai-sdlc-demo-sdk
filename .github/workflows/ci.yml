@@ -96,7 +96,7 @@ jobs:
     needs: [stage-2-ai-review]
     if: always() && github.event_name == 'pull_request' && vars.SDLC_MODE != 'ide' && (needs.stage-2-ai-review.result == 'success' || needs.stage-2-ai-review.result == 'failure')
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35   # the Interactions preview alone can take 25 min
     concurrency:
       group: ai-fix-${{ github.event.pull_request.number }}
       cancel-in-progress: false

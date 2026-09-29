@@ -1,15 +1,16 @@
 # Demo runbook — AI SDLC for Acme Finance
 
 **Audience:** Acme Finance engineering (devs, reviewers, QA, leads).
-**Story:** a ticket goes in, a merged PR comes out. Antigravity writes and fixes the
-code, Gemini on Vertex AI reviews it, and GitHub enforces the gate. About 30 minutes.
+**Story:** a ticket goes in, a merged PR comes out. Antigravity or an ADK agent writes
+and fixes the code, Gemini reviews it, and GitHub enforces the gate. About 35 minutes.
 
 | Act | What they see | Needs | Time |
 | --- | --- | --- | --- |
-| 0 | The flow and the two modes | this doc | 3 min |
+| 0 | The flow and the four paths | this doc | 3 min |
 | 1 | The pipeline run end to end on a laptop: review blocks, fix, re-review, merge | Python, a Gemini key | 7 min |
 | 2 | Antigravity IDE builds the ticket and opens the PR | Antigravity, GitHub MCP | 10 min |
-| 3 | The same loop on real GitHub: inline comments, review summary, auto-merge | a GitHub repo set up per §3 | 10 min |
+| 3 | The unattended fix loop on real GitHub (paths 2–4): recorded run, then re-run fresh | a GitHub repo set up per §3 | 10 min |
+| 4 | Compare the four paths | COMPARISON.md | 5 min |
 
 Act 1 always works offline from GitHub. Do it first, so the story lands even if
 Wi-Fi or permissions fail during Acts 2–3.
@@ -19,22 +20,44 @@ Wi-Fi or permissions fail during Acts 2–3.
 ## Act 0 — The flow (talk track)
 
 ```
-ticket ─► Antigravity IDE ─► PR (auto-merge ON) ─► CI: tests ─► CI: AI review (Gemini/Vertex)
-            skills + rules                                        │
-                 ▲                                   blocker? ─yes─► merge blocked
-                 └──────── address-review ◄──── inline comments ─┘
-                                              no ─► green + conversations resolved ─► merged
+ ticket ─► Developer assistant: first draft, PR with auto-merge
+             │
+ stage-1: tests ───────────────────────────────────────────┐
+ stage-2: ai-review   Gemini reviews the diff, inline comments, blocker ⇒ fail
+             │        re-runs skip what they posted, resolve what is no longer reported
+ stage-3: ai-fix      engine = SDLC_MODE (interactions | sdk | adk)
+             │        fix step: agent edits services/ only, no push credential
+             │        publish step: tests pass ⇒ commit + push as Developer assistant
+             └──────► the push starts the next run (max 3 fix rounds, then needs-human)
+ stage-4: merge-gate  the only required check ─────────────┘
+             │
+ every conversation resolved ⇒ GitHub auto-merges
 ```
 
-Two modes, same `.agents/` folder:
+Four paths, one codebase, `SDLC_MODE` picks which one runs:
 
-- **IDE mode:** everything is driven from Antigravity. `ship-ticket` runs the whole
-  loop in one prompt. No infrastructure is needed, but only when someone is at the keyboard.
-- **Enforced mode:** the CI `stage-2: ai-review` job reviews every push whoever wrote it, and
-  GitHub refuses to merge on a blocker. That's the production setup.
+1. **Antigravity app (IDE):** the developer builds and fixes from the IDE, and the
+   review runs there too. Stage-2/3 are skipped in CI; the IDE review posts a
+   `stage-2: ai-review (ide)` commit status instead, and branch protection requires it.
+2. **Antigravity Interactions API:** stage-3 is the Antigravity agent in a
+   Google-hosted sandbox, called from CI.
+3. **Antigravity SDK:** stage-3 is `google-antigravity`, the Antigravity agent loop
+   running on the CI runner itself, inside a command sandbox with deny-by-default policies.
+4. **Gemini + ADK:** stage-3 is our own ADK agent with four hand-written tools, calling
+   the GitHub API ourselves. No shell, no Antigravity runtime.
 
-Key line: *the IDE makes developers fast, and the pipeline keeps the codebase safe.
-They share one rulebook.*
+**Identities.** The **developer** is a person: files the ticket, decides, owns the
+merge. **Developer assistant** is a separate machine account for every automated
+action — drafts, PRs, review comments, fix pushes. It has write access, no admin
+rights and no `workflow` scope, so it can't touch the gate that checks its own work.
+
+**Where a person decides.** When an agent thinks a finding is wrong, it says why on
+the thread and changes nothing. If the developer agrees, they resolve the thread —
+that counts as *accepted*, and the gate and ai-fix skip it from then on. Low-severity
+leftovers that nobody disputes become follow-up issues instead of blocking anyone.
+
+Key line: *the IDE makes developers fast, and the pipeline keeps the codebase safe
+without a person watching every push. They share one rulebook.*
 
 ---
 
@@ -123,7 +146,7 @@ Before the session:
 - Settings → terminal: set it to ask before running commands, so the audience sees
   each approval.
 - Check that the agent panel lists the skills: `implement-ticket`,
-  `open-pull-request`, `address-review`, `ship-ticket`, `review-pr`.
+  `open-pull-request`, `review-pr`, `address-review`, `ship-ticket`.
 
 Script:
 1. *"Implement LOAN-12 from demo/TICKET-LOAN-12.md."*
@@ -143,28 +166,49 @@ For a guaranteed messy PR: `cp -r demo/mr-fixture/. .`, commit, then step 2.
 
 ---
 
-## Act 3 — Real GitHub pipeline
+## Act 3 — Unattended fix loop on GitHub (paths 2–4)
 
-One-time repo setup, needs admin: run `demo/setup_github_repo.sh <owner/repo> [enforced|ide]`. It
-enables auto-merge and delete-branch-on-merge, and protects `main` requiring status
-check `stage-3: merge-gate` and conversation resolution. Branch
-protection on a private repo needs GitHub Pro/Team/Enterprise; on the free plan,
-use a public demo repo — without branch protection, `gh pr merge --auto` has
-nothing to wait for.
+### The recorded example: path 3, Antigravity SDK, PR #2
 
-Before that, set model access, one of:
-- repo secret `GEMINI_API_KEY`; or
-- Vertex (recommended): repo variables `GCP_WIF_PROVIDER`, `GCP_SERVICE_ACCOUNT`,
-  `GOOGLE_CLOUD_PROJECT` (`google-github-actions/auth`, service account with
-  `roles/aiplatform.user`). When `GCP_WIF_PROVIDER` is set the workflow uses
-  Vertex automatically.
+Walk `ai-sdlc-demo-sdk`'s merged [PR #2](../../pull/2) from its `JOURNEY.md`:
 
-No separate bot token to create: the reviewer runs as the built-in `GITHUB_TOKEN`
-with workflow permission `pull-requests: write`. Note fork PRs get a read-only
-`GITHUB_TOKEN` and no secrets, so this review is for same-repo branches — fine
-for an internal team.
+1. Assistant pushes the first draft, opens the PR with auto-merge on.
+2. `stage-2: ai-review` finds 8 findings including blockers ⇒ gate fails, inline
+   comments and a summary land on the PR.
+3. `stage-3: ai-fix` (Antigravity SDK, `google-antigravity`) fixes all 8 in 109s,
+   tests go 5 → 14, and pushes as Developer assistant, which starts the next run.
+4. Re-review resolves all 8 round-1 threads itself and surfaces one new one: a
+   dummy `CORE_API_KEY` in the new test fixture, flagged as a blocker.
+5. `stage-3` round 2: the agent changes nothing on purpose, judges the finding a
+   false positive — a test-only dummy, not a real key in production — and says so
+   on the thread.
+6. The developer agrees and resolves the thread: accepted. Gate and future
+   ai-fix runs skip it.
+7. Re-review passes (one low-severity point becomes a follow-up issue,
+   [#3](../../issues/3)); `stage-4: merge-gate` passes, GitHub auto-merges.
 
-Run:
+Total: 4 review runs, 2 ai-fix rounds (1 push, 1 deliberate no-change), 10 threads
+resolved, merged about 36 minutes after the PR opened.
+
+### Re-run it fresh
+
+One-time, needs a repo owner:
+
+```bash
+bash demo/publish_repo.sh <interactions|sdk|adk> <owner>/<repo>
+```
+
+Then, as the owner, set the two secrets:
+
+```bash
+gh secret set -f .env -R <owner>/<repo>                                              # GEMINI_API_KEY
+gh auth token --user <assistant> | gh secret set ASSISTANT_TOKEN -R <owner>/<repo>    # Developer assistant's token
+```
+
+The Developer assistant account must accept the collaborator invite before it can
+push or resolve threads.
+
+Then, as the assistant, open the PR:
 
 ```bash
 git switch -c feat/LOAN-12-early-settlement
@@ -172,22 +216,43 @@ cp -r demo/mr-fixture/. . && git add services && git commit -m "LOAN-12: early s
 bash .agents/skills/open-pull-request/scripts/open_pr.sh "LOAN-12: Early settlement quote"
 ```
 
-1. CI run #1: `stage-1: tests` passes, `stage-2: ai-review` fails, so `stage-3: merge-gate` fails. Show the inline
-   review comments and the summary comment on the PR.
-2. Fix. Either run *"address the review"* in Antigravity, or apply the stand-in:
-   `cp -r demo/fix-round-1/. . && git commit -am "LOAN-12: address review (round 1)" && git push`
-3. Resolve the fixed conversations (the `ship-ticket` skill does this itself).
-4. CI run #2 goes green, and GitHub merges and deletes the branch. Show the PR timeline.
+Then just watch: `stage-1: tests` → `stage-2: ai-review` fails → `stage-3: ai-fix`
+pushes → the push re-triggers the pipeline → repeat until the review has nothing
+left to accept-or-follow-up, `stage-4: merge-gate` goes green, and GitHub auto-merges.
 
 Reset for the next audience: close the PR, delete the branch, and revert `main` if it merged.
 
 ---
 
+## Act 4 — Compare the paths (5 min)
+
+Open `COMPARISON.md`'s table. All four paths ran the same ticket, first draft,
+reviewer and gate — only the fix engine (stage-3) differs:
+
+- **IDE** — no infrastructure, a person drives every step; pair with the CI gate.
+- **Interactions API** — strongest isolation (agent never touches the runner,
+  repo or secrets), but slowest and most expensive per round, still a preview.
+- **SDK** — best balance: fastest Antigravity option, least code, declarative
+  guardrails; costs a large runtime dependency and a young API.
+- **ADK** — most control and portability, no shell, runs on Vertex/Agent Engine;
+  costs the most code to own.
+
+Recommendation for a team already on Vertex AI: everyone works in the Antigravity
+app day to day, the CI review gate runs on every repo, automatic fixing runs on
+the Antigravity SDK with Vertex and a round cap, re-evaluate the Interactions API
+at GA, and reach for ADK for agents beyond coding.
+
+---
+
 ## Known limits, said out loud
 
+- Path 1's fix code was written by stand-ins (`demo/fix-round-*`, and role-play in
+  place of Antigravity) because Antigravity wasn't installed on the machine that ran
+  it; the reviews, GitHub actions and gate were live.
+- The Interactions API is a preview: 4–6 minutes per fix round, about 1.3M tokens
+  per round, and a status poll has been seen to hang for hours.
 - Findings vary a little between runs, and about 1 in 10 is a false positive. The
   gate is `blocker` only, so a false major doesn't block anyone.
 - The reviewer sees the diff plus the changed files, not callers in other repos.
-- The fully unattended fix loop (headless `agy` in CI pushing its own fixes) is
-  designed but not built. Fixes are made from the IDE, with a person watching.
-- `agy` on Vertex AI is thinly documented. Confirm it before promising a keyless setup.
+- Branch protection on a private repo needs GitHub Pro, Team or Enterprise. On the
+  free plan, use a public demo repo.

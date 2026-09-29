@@ -3,7 +3,7 @@
 The agent runs in a remote Google-hosted Linux sandbox. We ship the touched services plus the
 project rules in as inline sources, let it edit and test there, then pull the changed files back
 (environment files API, falling back to the `files` map in its final JSON) and write only paths
-below `allowed_prefixes` into `workdir`. The sandbox gets no credentials, no MCP and no network.
+below `allowed_prefixes` into `workdir`. The sandbox gets no credentials, no MCP and no network egress.
 
     python -m ci.engines.interactions <workdir> <findings.json>
 """
@@ -19,7 +19,7 @@ from pathlib import Path, PurePosixPath
 from .prompt import RESULT_SCHEMA, build_prompt
 
 AGENT = "antigravity-preview-09-2026"
-DEADLINE_S = 15 * 60
+DEADLINE_S = int(os.environ.get("INTERACTIONS_DEADLINE_S", 25 * 60))  # the preview is slow: 230-530 s even on trivial tasks
 POLL_S = 10
 SKIP_DIRS = {"__pycache__", ".pytest_cache", ".venv", ".git"}
 ROOT = "/workspace"
@@ -78,10 +78,12 @@ def _readback(client, env_id: str, dirs: list[str]) -> dict[str, str]:
             )
             for f in res.files or []:
                 path = (f.path or "").lstrip("/")
-                if f.type != "file":
+                if str(f.type).lower() != "file":  # API returns "FILE"/"DIRECTORY"
                     continue
                 rel = path.removeprefix(ROOT.lstrip("/") + "/")
-                if SKIP_DIRS & set(PurePosixPath(rel).parts) or rel.endswith(".pyc"):
+                # pytest leaves `pytest-cache-files-*` temp files behind when its cache dir is unwritable.
+                if (SKIP_DIRS & set(PurePosixPath(rel).parts) or rel.endswith(".pyc")
+                        or PurePosixPath(rel).name.startswith("pytest-cache-files-")):
                     continue
                 try:
                     out[rel] = client.environments.files.download(environment=env_id, path=path).decode()
@@ -105,13 +107,13 @@ def fix(workdir: Path, findings: list[dict], allowed_prefixes: list[str]) -> dic
     config = {"type": "antigravity", "max_total_tokens": int(os.environ.get("GEMINI_AGENT_MAX_TOKENS", "2000000"))}
     if os.environ.get("GEMINI_AGENT_MODEL"):
         config["model"] = os.environ["GEMINI_AGENT_MODEL"]
-    network = os.environ.get("GEMINI_AGENT_NETWORK", "disabled")
     env = {
         "type": "remote",
         "sources": [{"type": "inline", "target": f"{ROOT}/{p}", "content": c} for p, c in sent.items()],
+        # Empty allowlist = no egress at all. Not "disabled": that mode boots a sandbox without
+        # pytest where the agent burned the whole deadline hunting for it.
+        "network": {"allowlist": []},
     }
-    if network == "disabled":
-        env["network"] = "disabled"
 
     t0, polls = time.monotonic(), 0
     it = client.interactions.create(
@@ -128,7 +130,7 @@ def fix(workdir: Path, findings: list[dict], allowed_prefixes: list[str]) -> dic
                     "notes": f"interaction {it.id} cancelled after {DEADLINE_S}s"}
         time.sleep(POLL_S)
         polls += 1
-        it = client.interactions.get(id=it.id)
+        it = client.interactions.get(id=it.id, timeout=60)  # a GET without timeout once hung for hours
         tok = getattr(it.usage, "total_tokens", None) if it.usage else None
         print(f"poll {polls} {it.id} {it.status} steps={len(it.steps or [])} tokens={tok}", file=sys.stderr)
     stats = f"interaction {it.id} status={it.status} {time.monotonic() - t0:.0f}s polls={polls}"
